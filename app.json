@@ -38,7 +38,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "react-native-reanimated/plugin"
     ],
     "experiments": {
       "typedRoutes": true,
