@@ -1,5 +1,5 @@
-import CameraScreen from '../../CameraScreen';
+import SwipeableTabView from '../../SwipeableTabView';
 
-export default function CalendarTab() {
-  return <CameraScreen />;
+export default function TabOneScreen() {
+  return <SwipeableTabView />;
 }
