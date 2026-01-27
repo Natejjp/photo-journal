@@ -11,6 +11,8 @@ interface PhotoEntry {
   date: string;
   filename: string;
   dateString: string; // YYYY-MM-DD format
+  tags?: string[];
+  note?: string;
 }
 
 export default function CalendarScreen() {
@@ -66,12 +68,30 @@ export default function CalendarScreen() {
 
           console.log(`Photo: ${filename}, Date: ${dateString}, Timestamp: ${timestamp}`);
 
+          // Try to load tags and note from metadata file
+          const metadataFile = photosDirectory + filename.replace('.jpg', '.json');
+          let tags: string[] = [];
+          let note: string | undefined;
+          try {
+            const metadataInfo = await FileSystem.getInfoAsync(metadataFile);
+            if (metadataInfo.exists) {
+              const metadataContent = await FileSystem.readAsStringAsync(metadataFile);
+              const metadata = JSON.parse(metadataContent);
+              tags = metadata.tags || [];
+              note = metadata.note;
+            }
+          } catch (e) {
+            // No metadata file, that's ok
+          }
+
           photoEntries.push({
             uri,
             timestamp,
             date: dateObj.toLocaleString(),
             filename,
-            dateString
+            dateString,
+            tags,
+            note
           });
 
           // Mark dates that have photos
@@ -195,18 +215,29 @@ export default function CalendarScreen() {
                     onPress={() => openPhotoViewer(photo)}
                     activeOpacity={0.7}
                   >
-                    <View key={photo.uri} style={styles.photoItem}>
-                      <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
-                      <View style={styles.photoDetails}>
-                        <Text style={styles.photoTime}>
-                          {new Date(photo.timestamp).toLocaleTimeString('en-US', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true
-                          })}
+                    <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
+                    <View style={styles.photoDetails}>
+                      <Text style={styles.photoTime}>
+                        {new Date(photo.timestamp).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
+                      </Text>
+                      {photo.note && (
+                        <Text style={styles.photoNote} numberOfLines={2}>
+                          {photo.note}
                         </Text>
-                        <Text style={styles.photoFilename}>{photo.filename}</Text>
-                      </View>
+                      )}
+                      {photo.tags && photo.tags.length > 0 && (
+                        <View style={styles.photoTagsContainer}>
+                          {photo.tags.map((tag, i) => (
+                            <View key={i} style={styles.photoTag}>
+                              <Text style={styles.photoTagText}>{tag}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
                 ))
@@ -221,7 +252,7 @@ export default function CalendarScreen() {
             </Text>
           </View>
         )}
-          {selectedPhoto && (
+        {selectedPhoto && (
           <PhotoViewer
             visible={viewerVisible}
             photoUri={selectedPhoto.uri}
@@ -308,10 +339,28 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '500',
   },
-  photoFilename: {
-    fontSize: 12,
-    color: '#999',
+  photoNote: {
+    fontSize: 14,
+    color: '#666',
     marginTop: 4,
+    lineHeight: 18,
+  },
+  photoTagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  photoTag: {
+    backgroundColor: '#E8F4FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  photoTagText: {
+    color: '#007AFF',
+    fontSize: 11,
+    fontWeight: '500',
   },
   emptyText: {
     textAlign: 'center',

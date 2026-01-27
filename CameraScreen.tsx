@@ -21,6 +21,7 @@ interface PhotoEntry {
   date: string;
   filename: string;
   tags?: string[];
+  note?: string;
 }
 
 export default function CameraScreen() {
@@ -30,6 +31,7 @@ export default function CameraScreen() {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
   const [currentTags, setCurrentTags] = useState<string[]>([]);
+  const [noteText, setNoteText] = useState('');
   const cameraRef = useRef<CameraView>(null);
 
   // Directory where we'll save photos permanently
@@ -66,12 +68,14 @@ export default function CameraScreen() {
           // Try to load tags from metadata file
           const metadataFile = photosDirectory + filename.replace('.jpg', '.json');
           let tags: string[] = [];
+          let note: string | undefined;
           try {
             const metadataInfo = await FileSystem.getInfoAsync(metadataFile);
             if (metadataInfo.exists) {
               const metadataContent = await FileSystem.readAsStringAsync(metadataFile);
               const metadata = JSON.parse(metadataContent);
               tags = metadata.tags || [];
+              note = metadata.note;
             }
           } catch (e) {
             // No metadata file, that's ok
@@ -82,7 +86,8 @@ export default function CameraScreen() {
             timestamp,
             date: new Date(timestamp).toLocaleString(),
             filename,
-            tags
+            tags,
+            note
           });
         }
       }
@@ -103,6 +108,7 @@ export default function CameraScreen() {
           setCapturedPhoto(photo.uri);
           setCurrentTags([]);
           setTagInput('');
+          setNoteText('');
         }
       } catch (error) {
         console.error('Error taking photo:', error);
@@ -138,10 +144,13 @@ export default function CameraScreen() {
         to: newUri
       });
 
-      // Save metadata (tags) as JSON
-      if (currentTags.length > 0) {
+      // Save metadata (tags and note) as JSON
+      if (currentTags.length > 0 || noteText.trim()) {
         const metadataFile = photosDirectory + filename.replace('.jpg', '.json');
-        const metadata = { tags: currentTags };
+        const metadata = { 
+          tags: currentTags,
+          note: noteText.trim() || undefined
+        };
         await FileSystem.writeAsStringAsync(metadataFile, JSON.stringify(metadata));
       }
 
@@ -153,7 +162,8 @@ export default function CameraScreen() {
         timestamp,
         date: new Date(timestamp).toLocaleString(),
         filename,
-        tags: currentTags.length > 0 ? currentTags : undefined
+        tags: currentTags.length > 0 ? currentTags : undefined,
+        note: noteText.trim() || undefined
       };
 
       setPhotos([newPhoto, ...photos]);
@@ -161,6 +171,7 @@ export default function CameraScreen() {
       // Reset state
       setCapturedPhoto(null);
       setCurrentTags([]);
+      setNoteText('');
       
       Alert.alert('Success', 'Photo saved!');
     } catch (error) {
@@ -173,6 +184,7 @@ export default function CameraScreen() {
     setCapturedPhoto(null);
     setCurrentTags([]);
     setTagInput('');
+    setNoteText('');
   };
 
   const deletePhoto = async (photo: PhotoEntry) => {
@@ -228,39 +240,57 @@ export default function CameraScreen() {
           <Image source={{ uri: capturedPhoto }} style={styles.previewImage} />
           
           <View style={styles.previewOverlay}>
-            <View style={styles.tagsSection}>
-              <Text style={styles.tagsLabel}>Add Tags (optional)</Text>
-              
-              <View style={styles.tagInputContainer}>
+            <ScrollView style={styles.overlayScroll}>
+              {/* Note input */}
+              <View style={styles.noteSection}>
+                <Text style={styles.sectionLabel}>Add a note</Text>
                 <TextInput
-                  style={styles.tagInput}
-                  value={tagInput}
-                  onChangeText={setTagInput}
-                  placeholder="e.g., work, family, travel"
+                  style={styles.noteInput}
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  placeholder="What's happening in this moment?"
                   placeholderTextColor="#999"
-                  onSubmitEditing={addTag}
-                  returnKeyType="done"
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
                 />
-                <TouchableOpacity onPress={addTag} style={styles.addTagButton}>
-                  <Text style={styles.addTagText}>Add</Text>
-                </TouchableOpacity>
               </View>
 
-              {currentTags.length > 0 && (
-                <View style={styles.tagsContainer}>
-                  {currentTags.map((tag, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.tag}
-                      onPress={() => removeTag(tag)}
-                    >
-                      <Text style={styles.tagText}>{tag}</Text>
-                      <Text style={styles.tagRemove}> ✕</Text>
-                    </TouchableOpacity>
-                  ))}
+              {/* Tags section */}
+              <View style={styles.tagsSection}>
+                <Text style={styles.sectionLabel}>Add tags (optional)</Text>
+                
+                <View style={styles.tagInputContainer}>
+                  <TextInput
+                    style={styles.tagInput}
+                    value={tagInput}
+                    onChangeText={setTagInput}
+                    placeholder="e.g., work, family, travel"
+                    placeholderTextColor="#999"
+                    onSubmitEditing={addTag}
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity onPress={addTag} style={styles.addTagButton}>
+                    <Text style={styles.addTagText}>Add</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
-            </View>
+
+                {currentTags.length > 0 && (
+                  <View style={styles.tagsContainer}>
+                    {currentTags.map((tag, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.tag}
+                        onPress={() => removeTag(tag)}
+                      >
+                        <Text style={styles.tagText}>{tag}</Text>
+                        <Text style={styles.tagRemove}> ✕</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </ScrollView>
 
             <View style={styles.previewButtons}>
               <TouchableOpacity style={styles.retakeButton} onPress={retakePhoto}>
@@ -325,27 +355,32 @@ export default function CameraScreen() {
                 }
 
                 return todaysPhotos.map((photo) => (
-                  <View key={photo.uri} style={styles.photoItem}>
-                    <Image source={{ uri: photo.uri }} style={styles.thumbnail} />
-                    <View style={styles.photoInfo}>
-                      <Text style={styles.photoDate}>{photo.date}</Text>
-                      {photo.tags && photo.tags.length > 0 && (
-                        <View style={styles.photoTagsContainer}>
-                          {photo.tags.map((tag, i) => (
-                            <View key={i} style={styles.photoTag}>
-                              <Text style={styles.photoTagText}>{tag}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                    <TouchableOpacity 
-                      onPress={() => deletePhoto(photo)}
-                      style={styles.deleteButton}
-                    >
-                      <Text style={styles.deleteButtonText}>Delete</Text>
-                    </TouchableOpacity>
+                <View key={photo.uri} style={styles.photoItem}>
+                  <Image source={{ uri: photo.uri }} style={styles.thumbnail} />
+                  <View style={styles.photoInfo}>
+                    <Text style={styles.photoDate}>{photo.date}</Text>
+                    {photo.note && (
+                      <Text style={styles.photoNote} numberOfLines={2}>
+                        {photo.note}
+                      </Text>
+                    )}
+                    {photo.tags && photo.tags.length > 0 && (
+                      <View style={styles.photoTagsContainer}>
+                        {photo.tags.map((tag, i) => (
+                          <View key={i} style={styles.photoTag}>
+                            <Text style={styles.photoTagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
                   </View>
+                  <TouchableOpacity 
+                    onPress={() => deletePhoto(photo)}
+                    style={styles.deleteButton}
+                  >
+                    <Text style={styles.deleteButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
                 ));
               })()
             )}
@@ -417,11 +452,33 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+    backgroundColor: 'rgba(0,0,0,0.9)',
     paddingBottom: 40,
+    maxHeight: '50%',
+  },
+  overlayScroll: {
+    maxHeight: 300,
+  },
+  noteSection: {
+    padding: 20,
+    paddingBottom: 10,
+  },
+  sectionLabel: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  noteInput: {
+    backgroundColor: '#333',
+    color: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    fontSize: 16,
+    minHeight: 80,
   },
   tagsSection: {
-    padding: 20,
+    paddingHorizontal: 20,
     paddingBottom: 10,
   },
   tagsLabel: {
@@ -557,6 +614,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
+  },
+  photoNote: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 6,
+    lineHeight: 18,
   },
   photoTagsContainer: {
     flexDirection: 'row',
