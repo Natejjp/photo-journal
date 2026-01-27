@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, RefreshCon
 import { Calendar, DateData } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import * as FileSystem from 'expo-file-system/legacy';
+import PhotoViewer from './PhotoViewer';
 
 interface PhotoEntry {
   uri: string;
@@ -17,6 +18,8 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState('');
   const [markedDates, setMarkedDates] = useState<any>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotoEntry | null>(null);
   
   const photosDirectory = (FileSystem.documentDirectory || '') + 'photos/';
 
@@ -94,6 +97,11 @@ export default function CalendarScreen() {
   const onDayPress = (day: DateData) => {
     console.log('Selected date:', day.dateString);
     setSelectedDate(day.dateString);
+  };
+
+  const openPhotoViewer = (photo: PhotoEntry) => {
+    setSelectedPhoto(photo);
+    setViewerVisible(true);
   };
 
   // Filter photos for selected date
@@ -181,19 +189,26 @@ export default function CalendarScreen() {
                 <Text style={styles.emptyText}>No photos for this date</Text>
               ) : (
                 photosForSelectedDate.map((photo) => (
-                  <View key={photo.uri} style={styles.photoItem}>
-                    <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
-                    <View style={styles.photoDetails}>
-                      <Text style={styles.photoTime}>
-                        {new Date(photo.timestamp).toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          hour12: true
-                        })}
-                      </Text>
-                      <Text style={styles.photoFilename}>{photo.filename}</Text>
+                  <TouchableOpacity 
+                    key={photo.uri} 
+                    style={styles.photoItem}
+                    onPress={() => openPhotoViewer(photo)}
+                    activeOpacity={0.7}
+                  >
+                    <View key={photo.uri} style={styles.photoItem}>
+                      <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
+                      <View style={styles.photoDetails}>
+                        <Text style={styles.photoTime}>
+                          {new Date(photo.timestamp).toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                          })}
+                        </Text>
+                        <Text style={styles.photoFilename}>{photo.filename}</Text>
+                      </View>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))
               )}
             </ScrollView>
@@ -205,6 +220,14 @@ export default function CalendarScreen() {
               Dates with dots have photo entries
             </Text>
           </View>
+        )}
+          {selectedPhoto && (
+          <PhotoViewer
+            visible={viewerVisible}
+            photoUri={selectedPhoto.uri}
+            date={selectedPhoto.date}
+            onClose={() => setViewerVisible(false)}
+          />
         )}
       </View>
     </View>
