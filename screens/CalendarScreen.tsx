@@ -1,18 +1,21 @@
+import ErrorDisplay from '@/components/ErrorDisplay';
 import { PhotoTagsContainer } from '@/components/PhotoTag';
 import PhotoViewer from '@/components/PhotoViewer';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { loadAllPhotos } from '@/services/photoService';
 import { PhotoEntry } from '@/types';
 import { formatDateString } from '@/utils/dateUtils';
+import { ErrorMessages } from '@/utils/errorMessages';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useState } from 'react';
 import { Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 
 export default function CalendarScreen() {
+  const { error, clearError, executeWithErrorHandling, isLoading } = useErrorHandler();
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState('');
   const [markedDates, setMarkedDates] = useState<Record<string, any>>({});
-  const [refreshing, setRefreshing] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoEntry | null>(null);
 
@@ -25,28 +28,29 @@ export default function CalendarScreen() {
   );
 
   const loadPhotos = async () => {
-    try {
-      setRefreshing(true);
-      const photoEntries = await loadAllPhotos();
-      
-      // Build marked dates object
-      const dates: Record<string, any> = {};
-      photoEntries.forEach(photo => {
-        if (!dates[photo.dateString]) {
-          dates[photo.dateString] = { marked: true, dotColor: '#007AFF' };
-        }
-      });
+    await executeWithErrorHandling(
+      async () => {
+        const photoEntries = await loadAllPhotos();
+        
+        // Build marked dates object
+        const dates: Record<string, any> = {};
+        photoEntries.forEach(photo => {
+          if (!dates[photo.dateString]) {
+            dates[photo.dateString] = { marked: true, dotColor: '#007AFF' };
+          }
+        });
 
-      console.log('Total photos loaded:', photoEntries.length);
-      console.log('Marked dates:', Object.keys(dates));
+        console.log('Total photos loaded:', photoEntries.length);
+        console.log('Marked dates:', Object.keys(dates));
 
-      setPhotos(photoEntries);
-      setMarkedDates(dates);
-      setRefreshing(false);
-    } catch (error) {
-      console.error('Error loading photos:', error);
-      setRefreshing(false);
-    }
+        setPhotos(photoEntries);
+        setMarkedDates(dates);
+      },
+      {
+        loadingState: true,
+        defaultErrorMessage: ErrorMessages.LOAD_PHOTOS_FAILED,
+      }
+    );
   };
 
   const onDayPress = (day: DateData) => {
@@ -74,6 +78,8 @@ export default function CalendarScreen() {
           {photos.length} {photos.length === 1 ? 'entry' : 'entries'}
         </Text>
       </View>
+
+      <ErrorDisplay error={error} onDismiss={clearError} variant="banner" />
 
       <Calendar
         markedDates={{
@@ -125,7 +131,7 @@ export default function CalendarScreen() {
             <ScrollView 
               style={styles.photosList}
               refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={loadPhotos} />
+                <RefreshControl refreshing={isLoading} onRefresh={loadPhotos} />
               }
             >
               {photosForSelectedDate.length === 0 ? (

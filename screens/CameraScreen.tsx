@@ -1,7 +1,10 @@
+import ErrorToast from '@/components/ErrorToast';
 import { PhotoTagsContainer } from '@/components/PhotoTag';
+import { useErrorHandler } from '@/hooks/useErrorHandler';
 import { deletePhoto as deletePhotoService, loadAllPhotos, savePhoto } from '@/services/photoService';
 import { PhotoEntry } from '@/types';
 import { isPhotoFromToday } from '@/utils/dateUtils';
+import { ErrorMessages } from '@/utils/errorMessages';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -19,6 +22,7 @@ import {
 } from 'react-native';
 
 export default function CameraScreen() {
+  const { error, clearError, executeWithErrorHandling } = useErrorHandler();
   const [permission, requestPermission] = useCameraPermissions();
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [showCamera, setShowCamera] = useState(true);
@@ -34,28 +38,33 @@ export default function CameraScreen() {
   }, []);
 
   const loadPhotos = async () => {
-    try {
-      const photoEntries = await loadAllPhotos();
-      setPhotos(photoEntries);
-    } catch (error) {
-      console.error('Error loading photos:', error);
-    }
+    await executeWithErrorHandling(
+      async () => {
+        const photoEntries = await loadAllPhotos();
+        setPhotos(photoEntries);
+      },
+      {
+        defaultErrorMessage: ErrorMessages.LOAD_PHOTOS_FAILED,
+      }
+    );
   };
 
   const takePhoto = async () => {
     if (cameraRef.current) {
-      try {
-        const photo = await cameraRef.current.takePictureAsync();
-        if (photo) {
-          setCapturedPhoto(photo.uri);
-          setCurrentTags([]);
-          setTagInput('');
-          setNoteText('');
+      await executeWithErrorHandling(
+        async () => {
+          const photo = await cameraRef.current!.takePictureAsync();
+          if (photo) {
+            setCapturedPhoto(photo.uri);
+            setCurrentTags([]);
+            setTagInput('');
+            setNoteText('');
+          }
+        },
+        {
+          defaultErrorMessage: ErrorMessages.TAKE_PHOTO_FAILED,
         }
-      } catch (error) {
-        console.error('Error taking photo:', error);
-        Alert.alert('Error', 'Failed to take photo');
-      }
+      );
     }
   };
 
@@ -74,26 +83,29 @@ export default function CameraScreen() {
   const savePhotoHandler = async () => {
     if (!capturedPhoto) return;
 
-    try {
-      const newPhoto = await savePhoto(
-        capturedPhoto,
-        currentTags.length > 0 ? currentTags : undefined,
-        noteText.trim() || undefined
-      );
-
-      setPhotos([newPhoto, ...photos]);
-      
-      // Reset state
-      setCapturedPhoto(null);
-      setCurrentTags([]);
-      setTagInput('');
-      setNoteText('');
-      
-      Alert.alert('Success', 'Photo saved!');
-    } catch (error) {
-      console.error('Error saving photo:', error);
-      Alert.alert('Error', 'Failed to save photo');
-    }
+    const result = await executeWithErrorHandling(
+      async () => {
+        return await savePhoto(
+          capturedPhoto,
+          currentTags.length > 0 ? currentTags : undefined,
+          noteText.trim() || undefined
+        );
+      },
+      {
+        defaultErrorMessage: ErrorMessages.SAVE_PHOTO_FAILED,
+        onSuccess: (newPhoto) => {
+          setPhotos([newPhoto, ...photos]);
+          
+          // Reset state
+          setCapturedPhoto(null);
+          setCurrentTags([]);
+          setTagInput('');
+          setNoteText('');
+          
+          Alert.alert('Success', 'Photo saved!');
+        },
+      }
+    );
   };
 
   const retakePhoto = () => {
@@ -113,13 +125,15 @@ export default function CameraScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await deletePhotoService(photo.uri);
-              setPhotos(photos.filter(p => p.uri !== photo.uri));
-            } catch (error) {
-              console.error('Error deleting photo:', error);
-              Alert.alert('Error', 'Failed to delete photo');
-            }
+            await executeWithErrorHandling(
+              async () => {
+                await deletePhotoService(photo.uri);
+                setPhotos(photos.filter(p => p.uri !== photo.uri));
+              },
+              {
+                defaultErrorMessage: ErrorMessages.DELETE_PHOTO_FAILED,
+              }
+            );
           }
         }
       ]
@@ -210,6 +224,7 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
+      <ErrorToast error={error} onDismiss={clearError} />
       {showCamera ? (
         <View style={styles.camera}>
           <CameraView 
