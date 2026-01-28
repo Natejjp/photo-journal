@@ -1,29 +1,20 @@
-import { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, RefreshControl } from 'react-native';
-import { Calendar, DateData } from 'react-native-calendars';
+import { PhotoTagsContainer } from '@/components/PhotoTag';
+import PhotoViewer from '@/components/PhotoViewer';
+import { loadAllPhotos } from '@/services/photoService';
+import { PhotoEntry } from '@/types';
+import { formatDateString } from '@/utils/dateUtils';
 import { useFocusEffect } from '@react-navigation/native';
-import * as FileSystem from 'expo-file-system/legacy';
-import PhotoViewer from './PhotoViewer';
-
-interface PhotoEntry {
-  uri: string;
-  timestamp: number;
-  date: string;
-  filename: string;
-  dateString: string; // YYYY-MM-DD format
-  tags?: string[];
-  note?: string;
-}
+import { useCallback, useState } from 'react';
+import { Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Calendar, DateData } from 'react-native-calendars';
 
 export default function CalendarScreen() {
   const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState('');
-  const [markedDates, setMarkedDates] = useState<any>({});
+  const [markedDates, setMarkedDates] = useState<Record<string, any>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoEntry | null>(null);
-  
-  const photosDirectory = (FileSystem.documentDirectory || '') + 'photos/';
 
   // Auto-refresh when tab is focused
   useFocusEffect(
@@ -36,75 +27,19 @@ export default function CalendarScreen() {
   const loadPhotos = async () => {
     try {
       setRefreshing(true);
-      console.log('Loading photos from:', photosDirectory);
+      const photoEntries = await loadAllPhotos();
       
-      const dirInfo = await FileSystem.getInfoAsync(photosDirectory);
-      if (!dirInfo.exists) {
-        console.log('Photos directory does not exist, creating...');
-        await FileSystem.makeDirectoryAsync(photosDirectory, { intermediates: true });
-      }
-
-      const files = await FileSystem.readDirectoryAsync(photosDirectory);
-      console.log('Found files:', files);
-      
-      const photoEntries: PhotoEntry[] = [];
-      const dates: any = {};
-
-      for (const filename of files) {
-        if (filename.endsWith('.jpg')) {
-          const uri = photosDirectory + filename;
-          const info = await FileSystem.getInfoAsync(uri);
-          // File system returns timestamp in SECONDS, convert to MILLISECONDS
-          const timestamp = info.exists && 'modificationTime' in info 
-            ? (info.modificationTime || Date.now()) * 1000
-            : Date.now();
-
-          const dateObj = new Date(timestamp);
-          // Use local date without timezone conversion
-          const year = dateObj.getFullYear();
-          const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-          const day = String(dateObj.getDate()).padStart(2, '0');
-          const dateString = `${year}-${month}-${day}`; // YYYY-MM-DD
-
-          console.log(`Photo: ${filename}, Date: ${dateString}, Timestamp: ${timestamp}`);
-
-          // Try to load tags and note from metadata file
-          const metadataFile = photosDirectory + filename.replace('.jpg', '.json');
-          let tags: string[] = [];
-          let note: string | undefined;
-          try {
-            const metadataInfo = await FileSystem.getInfoAsync(metadataFile);
-            if (metadataInfo.exists) {
-              const metadataContent = await FileSystem.readAsStringAsync(metadataFile);
-              const metadata = JSON.parse(metadataContent);
-              tags = metadata.tags || [];
-              note = metadata.note;
-            }
-          } catch (e) {
-            // No metadata file, that's ok
-          }
-
-          photoEntries.push({
-            uri,
-            timestamp,
-            date: dateObj.toLocaleString(),
-            filename,
-            dateString,
-            tags,
-            note
-          });
-
-          // Mark dates that have photos
-          if (!dates[dateString]) {
-            dates[dateString] = { marked: true, dotColor: '#007AFF' };
-          }
+      // Build marked dates object
+      const dates: Record<string, any> = {};
+      photoEntries.forEach(photo => {
+        if (!dates[photo.dateString]) {
+          dates[photo.dateString] = { marked: true, dotColor: '#007AFF' };
         }
-      }
+      });
 
       console.log('Total photos loaded:', photoEntries.length);
       console.log('Marked dates:', Object.keys(dates));
 
-      photoEntries.sort((a, b) => b.timestamp - a.timestamp);
       setPhotos(photoEntries);
       setMarkedDates(dates);
       setRefreshing(false);
@@ -130,18 +65,6 @@ export default function CalendarScreen() {
   });
 
   console.log(`Photos for ${selectedDate}:`, photosForSelectedDate.length);
-
-  // Format selected date for display
-  const formatSelectedDate = (dateString: string) => {
-    const [year, month, day] = dateString.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
 
   return (
     <View style={styles.container}>
@@ -193,7 +116,7 @@ export default function CalendarScreen() {
           <>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>
-                {formatSelectedDate(selectedDate)}
+                {formatDateString(selectedDate)}
               </Text>
               <TouchableOpacity onPress={loadPhotos} style={styles.refreshButton}>
                 <Text style={styles.refreshText}>Refresh</Text>
@@ -230,13 +153,7 @@ export default function CalendarScreen() {
                         </Text>
                       )}
                       {photo.tags && photo.tags.length > 0 && (
-                        <View style={styles.photoTagsContainer}>
-                          {photo.tags.map((tag, i) => (
-                            <View key={i} style={styles.photoTag}>
-                              <Text style={styles.photoTagText}>{tag}</Text>
-                            </View>
-                          ))}
-                        </View>
+                        <PhotoTagsContainer tags={photo.tags} variant="compact" />
                       )}
                     </View>
                   </TouchableOpacity>
@@ -344,23 +261,6 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
     lineHeight: 18,
-  },
-  photoTagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 6,
-  },
-  photoTag: {
-    backgroundColor: '#E8F4FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-  },
-  photoTagText: {
-    color: '#007AFF',
-    fontSize: 11,
-    fontWeight: '500',
   },
   emptyText: {
     textAlign: 'center',

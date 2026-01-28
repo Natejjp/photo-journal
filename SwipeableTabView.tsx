@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
-import { View, StyleSheet } from 'react-native';
+import CalendarScreen from '@/screens/CalendarScreen';
+import CameraScreen from '@/screens/CameraScreen';
+import { useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import PagerView from 'react-native-pager-view';
-import CameraScreen from './CameraScreen';
-import CalendarScreen from './CalendarScreen';
 
 export default function SwipeableTabView() {
   const [currentPage, setCurrentPage] = useState(0);

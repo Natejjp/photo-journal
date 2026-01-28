@@ -1,4 +1,4 @@
-import { Modal, View, Image, StyleSheet, TouchableOpacity, Text, Dimensions } from 'react-native';
+import { Dimensions, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface PhotoViewerProps {
   visible: boolean;

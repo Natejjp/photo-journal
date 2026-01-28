@@ -1,28 +1,22 @@
+import { PhotoTagsContainer } from '@/components/PhotoTag';
+import { deletePhoto as deletePhotoService, loadAllPhotos, savePhoto } from '@/services/photoService';
+import { PhotoEntry } from '@/types';
+import { isPhotoFromToday } from '@/utils/dateUtils';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useRef, useState, useEffect } from 'react';
-import { 
-  Button, 
-  StyleSheet, 
-  Text, 
-  TouchableOpacity, 
-  View, 
-  ScrollView, 
-  Image, 
-  Alert,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform
+import { useEffect, useRef, useState } from 'react';
+import {
+    Alert,
+    Button,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
-import * as FileSystem from 'expo-file-system/legacy';
-
-interface PhotoEntry {
-  uri: string;
-  timestamp: number;
-  date: string;
-  filename: string;
-  tags?: string[];
-  note?: string;
-}
 
 export default function CameraScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -34,9 +28,6 @@ export default function CameraScreen() {
   const [noteText, setNoteText] = useState('');
   const cameraRef = useRef<CameraView>(null);
 
-  // Directory where we'll save photos permanently
-  const photosDirectory = (FileSystem.documentDirectory || '') + 'photos/';
-
   // Load saved photos when app starts
   useEffect(() => {
     loadPhotos();
@@ -44,56 +35,7 @@ export default function CameraScreen() {
 
   const loadPhotos = async () => {
     try {
-      // Create photos directory if it doesn't exist
-      const dirInfo = await FileSystem.getInfoAsync(photosDirectory);
-      if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(photosDirectory, { intermediates: true });
-      }
-
-      // Read all photos from directory
-      const files = await FileSystem.readDirectoryAsync(photosDirectory);
-      
-      // Load photo metadata
-      const photoEntries: PhotoEntry[] = [];
-      for (const filename of files) {
-        if (filename.endsWith('.jpg')) {
-          const uri = photosDirectory + filename;
-          const info = await FileSystem.getInfoAsync(uri);
-          
-          // File system returns timestamp in SECONDS, convert to MILLISECONDS
-          const timestamp = info.exists && 'modificationTime' in info 
-            ? (info.modificationTime || Date.now()) * 1000
-            : Date.now();
-
-          // Try to load tags from metadata file
-          const metadataFile = photosDirectory + filename.replace('.jpg', '.json');
-          let tags: string[] = [];
-          let note: string | undefined;
-          try {
-            const metadataInfo = await FileSystem.getInfoAsync(metadataFile);
-            if (metadataInfo.exists) {
-              const metadataContent = await FileSystem.readAsStringAsync(metadataFile);
-              const metadata = JSON.parse(metadataContent);
-              tags = metadata.tags || [];
-              note = metadata.note;
-            }
-          } catch (e) {
-            // No metadata file, that's ok
-          }
-
-          photoEntries.push({
-            uri,
-            timestamp,
-            date: new Date(timestamp).toLocaleString(),
-            filename,
-            tags,
-            note
-          });
-        }
-      }
-
-      // Sort by newest first
-      photoEntries.sort((a, b) => b.timestamp - a.timestamp);
+      const photoEntries = await loadAllPhotos();
       setPhotos(photoEntries);
     } catch (error) {
       console.error('Error loading photos:', error);
@@ -129,48 +71,22 @@ export default function CameraScreen() {
     setCurrentTags(currentTags.filter(tag => tag !== tagToRemove));
   };
 
-  const savePhoto = async () => {
+  const savePhotoHandler = async () => {
     if (!capturedPhoto) return;
 
     try {
-      // Generate filename with timestamp
-      const timestamp = Date.now();
-      const filename = `photo_${timestamp}.jpg`;
-      const newUri = photosDirectory + filename;
-
-      // Copy from temp cache to permanent storage
-      await FileSystem.copyAsync({
-        from: capturedPhoto,
-        to: newUri
-      });
-
-      // Save metadata (tags and note) as JSON
-      if (currentTags.length > 0 || noteText.trim()) {
-        const metadataFile = photosDirectory + filename.replace('.jpg', '.json');
-        const metadata = { 
-          tags: currentTags,
-          note: noteText.trim() || undefined
-        };
-        await FileSystem.writeAsStringAsync(metadataFile, JSON.stringify(metadata));
-      }
-
-      console.log('Photo saved permanently:', newUri);
-
-      // Add to photos list
-      const newPhoto: PhotoEntry = {
-        uri: newUri,
-        timestamp,
-        date: new Date(timestamp).toLocaleString(),
-        filename,
-        tags: currentTags.length > 0 ? currentTags : undefined,
-        note: noteText.trim() || undefined
-      };
+      const newPhoto = await savePhoto(
+        capturedPhoto,
+        currentTags.length > 0 ? currentTags : undefined,
+        noteText.trim() || undefined
+      );
 
       setPhotos([newPhoto, ...photos]);
       
       // Reset state
       setCapturedPhoto(null);
       setCurrentTags([]);
+      setTagInput('');
       setNoteText('');
       
       Alert.alert('Success', 'Photo saved!');
@@ -187,7 +103,7 @@ export default function CameraScreen() {
     setNoteText('');
   };
 
-  const deletePhoto = async (photo: PhotoEntry) => {
+  const deletePhotoHandler = async (photo: PhotoEntry) => {
     Alert.alert(
       'Delete Photo',
       'Are you sure you want to delete this photo?',
@@ -198,17 +114,11 @@ export default function CameraScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await FileSystem.deleteAsync(photo.uri);
-              // Also delete metadata file if it exists
-              const metadataFile = photo.uri.replace('.jpg', '.json');
-              try {
-                await FileSystem.deleteAsync(metadataFile);
-              } catch (e) {
-                // Metadata file might not exist
-              }
+              await deletePhotoService(photo.uri);
               setPhotos(photos.filter(p => p.uri !== photo.uri));
             } catch (error) {
               console.error('Error deleting photo:', error);
+              Alert.alert('Error', 'Failed to delete photo');
             }
           }
         }
@@ -276,18 +186,7 @@ export default function CameraScreen() {
                 </View>
 
                 {currentTags.length > 0 && (
-                  <View style={styles.tagsContainer}>
-                    {currentTags.map((tag, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={styles.tag}
-                        onPress={() => removeTag(tag)}
-                      >
-                        <Text style={styles.tagText}>{tag}</Text>
-                        <Text style={styles.tagRemove}> ✕</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  <PhotoTagsContainer tags={currentTags} onRemove={removeTag} />
                 )}
               </View>
             </ScrollView>
@@ -296,7 +195,7 @@ export default function CameraScreen() {
               <TouchableOpacity style={styles.retakeButton} onPress={retakePhoto}>
                 <Text style={styles.retakeButtonText}>Retake</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveButton} onPress={savePhoto}>
+              <TouchableOpacity style={styles.saveButton} onPress={savePhotoHandler}>
                 <Text style={styles.saveButtonText}>Save Photo</Text>
               </TouchableOpacity>
             </View>
@@ -305,6 +204,9 @@ export default function CameraScreen() {
       </KeyboardAvoidingView>
     );
   }
+
+  // Filter photos for today
+  const todaysPhotos = photos.filter(photo => isPhotoFromToday(photo.timestamp));
 
   return (
     <View style={styles.container}>
@@ -336,25 +238,10 @@ export default function CameraScreen() {
           </View>
           
           <ScrollView style={styles.photosList}>
-            {photos.length === 0 ? (
-              <Text style={styles.emptyText}>No photos yet. Take your first photo!</Text>
+            {todaysPhotos.length === 0 ? (
+              <Text style={styles.emptyText}>No photos taken today. Take your first one!</Text>
             ) : (
-              (() => {
-                // Filter photos for today
-                const today = new Date();
-                const todayString = today.toISOString().split('T')[0]; // YYYY-MM-DD
-                
-                const todaysPhotos = photos.filter(photo => {
-                  const photoDate = new Date(photo.timestamp);
-                  const photoDateString = photoDate.toISOString().split('T')[0];
-                  return photoDateString === todayString;
-                });
-
-                if (todaysPhotos.length === 0) {
-                  return <Text style={styles.emptyText}>No photos taken today. Take your first one!</Text>;
-                }
-
-                return todaysPhotos.map((photo) => (
+              todaysPhotos.map((photo) => (
                 <View key={photo.uri} style={styles.photoItem}>
                   <Image source={{ uri: photo.uri }} style={styles.thumbnail} />
                   <View style={styles.photoInfo}>
@@ -365,24 +252,17 @@ export default function CameraScreen() {
                       </Text>
                     )}
                     {photo.tags && photo.tags.length > 0 && (
-                      <View style={styles.photoTagsContainer}>
-                        {photo.tags.map((tag, i) => (
-                          <View key={i} style={styles.photoTag}>
-                            <Text style={styles.photoTagText}>{tag}</Text>
-                          </View>
-                        ))}
-                      </View>
+                      <PhotoTagsContainer tags={photo.tags} variant="compact" />
                     )}
                   </View>
                   <TouchableOpacity 
-                    onPress={() => deletePhoto(photo)}
+                    onPress={() => deletePhotoHandler(photo)}
                     style={styles.deleteButton}
                   >
                     <Text style={styles.deleteButtonText}>Delete</Text>
                   </TouchableOpacity>
                 </View>
-                ));
-              })()
+              ))
             )}
           </ScrollView>
         </View>
@@ -481,12 +361,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 10,
   },
-  tagsLabel: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
   tagInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -511,28 +385,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  tagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  tag: {
-    flexDirection: 'row',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignItems: 'center',
-  },
-  tagText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  tagRemove: {
-    color: '#fff',
-    fontSize: 16,
-    marginLeft: 4,
   },
   previewButtons: {
     flexDirection: 'row',
@@ -620,23 +472,6 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 6,
     lineHeight: 18,
-  },
-  photoTagsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4,
-  },
-  photoTag: {
-    backgroundColor: '#E8F4FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-  },
-  photoTagText: {
-    color: '#007AFF',
-    fontSize: 11,
-    fontWeight: '500',
   },
   deleteButton: {
     padding: 8,
